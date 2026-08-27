@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 description = "Token-aware guard rails and cost analytics for Claude Code"
 license = "MIT"
+repository = "https://github.com/CHIRANTAN1455/skout-cli"
+homepage = "https://chirantan1455.github.io/skout-cli/"
+readme = "README.md"
+keywords = ["claude", "llm", "tokens", "cli", "cost"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "skout"

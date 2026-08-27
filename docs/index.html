@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>skout — token-aware guard rails for Claude Code</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Token-aware guard rails and cost analytics for Claude Code. A single 2.7 MB Rust binary — no runtime, no API key, no network calls.">
+<meta property="og:title" content="skout">
+<meta property="og:description" content="98% of Claude Code input tokens are context re-sent. skout keeps it out of the window — and proves it.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://chirantan1455.github.io/skout-cli/dashboard.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root {
+    color-scheme: dark;
+    --plane: #0d0d0d; --surface: #1a1a19; --surface-2: #201f1e;
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --ring: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    --good: #0ca30c; --warning: #fab219;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: var(--plane); color: var(--ink); font-family: var(--sans);
+         font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 28px; }
+  a { color: var(--s1); }
+
+  /* nav */
+  nav { display: flex; align-items: center; gap: 14px; padding: 22px 0 0; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 620; letter-spacing: -0.02em; font-size: 17px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--s3); box-shadow: 0 0 0 4px rgba(25,158,112,.16); }
+  nav .links { margin-left: auto; display: flex; gap: 18px; font-size: 13.5px; }
+  nav .links a { color: var(--ink-2); text-decoration: none; }
+  nav .links a:hover { color: var(--ink); }
+
+  /* hero */
+  .hero { padding: 62px 0 40px; }
+  .kicker { font-family: var(--mono); font-size: 12.5px; color: var(--muted); letter-spacing: .02em; }
+  h1 { font-size: 50px; line-height: 1.06; letter-spacing: -0.035em; font-weight: 640; margin: 14px 0 0; }
+  h1 em { font-style: normal; color: var(--s3); }
+  .sub { color: var(--ink-2); font-size: 17px; margin: 18px 0 0; max-width: 60ch; }
+  .sub b { color: var(--ink); font-weight: 600; }
+
+  .cta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
+  .btn { font: inherit; font-size: 14px; text-decoration: none; padding: 9px 16px; border-radius: 9px;
+         border: 1px solid var(--ring); color: var(--ink); background: var(--surface); }
+  .btn.primary { background: var(--ink); color: #0d0d0d; border-color: var(--ink); font-weight: 560; }
+  .btn:hover { background: var(--surface-2); }
+  .btn.primary:hover { background: #e8e8e4; }
+
+  /* generic */
+  section { padding: 42px 0; border-top: 1px solid var(--grid); }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted);
+       margin: 0 0 16px; font-weight: 600; }
+  h3 { font-size: 16px; margin: 0 0 6px; font-weight: 600; letter-spacing: -0.01em; }
+  p { margin: 0 0 14px; color: var(--ink-2); }
+  p:last-child { margin-bottom: 0; }
+  .card { border: 1px solid var(--ring); border-radius: 14px; background: var(--surface); padding: 22px; }
+
+  /* composition bar */
+  .stack { display: flex; gap: 2px; height: 34px; margin-bottom: 16px; }
+  .stack > i { display: block; min-width: 3px; border-radius: 2px; }
+  .stack > i:first-child { border-radius: 6px 2px 2px 6px; }
+  .stack > i:last-child { border-radius: 2px 6px 6px 2px; }
+  .legend { display: flex; gap: 22px; flex-wrap: wrap; }
+  .legend .item { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+  .legend .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .legend .lab { color: var(--ink-2); }
+  .legend .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .legend .pct { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .caption { color: var(--muted); font-size: 13px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--grid); }
+
+  /* tiles */
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+  .tile { border: 1px solid var(--ring); border-radius: 14px; background: var(--surface); padding: 18px; }
+  .tile .k { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; }
+  .tile .v { font-size: 27px; letter-spacing: -0.025em; font-weight: 620; margin-top: 7px; }
+  .tile .v.good { color: var(--good); }
+  .tile .n { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+
+  /* feature list */
+  .feat { display: grid; gap: 14px; }
+  .feat .row { display: grid; grid-template-columns: 30px 1fr; gap: 14px; align-items: start; }
+  .feat .n { font-family: var(--mono); color: var(--muted); font-size: 13px; padding-top: 2px; }
+
+  /* code */
+  pre { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px;
+        padding: 16px 18px; overflow-x: auto; margin: 0 0 12px; }
+  code { font-family: var(--mono); font-size: 13px; }
+  pre code { color: var(--ink-2); }
+  pre code b { color: var(--ink); font-weight: 500; }
+  .hint { color: var(--muted); font-size: 13px; }
+
+  figure { margin: 0; }
+  figure img { width: 100%; border-radius: 14px; border: 1px solid var(--ring); display: block; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 10px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; color: var(--muted); font-size: 11.5px; text-transform: uppercase;
+       letter-spacing: .06em; font-weight: 500; padding-bottom: 9px; }
+  td { padding: 9px 0; border-top: 1px solid var(--grid); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  td:first-child { font-family: var(--mono); font-size: 12.5px; }
+  th.r, td.r { text-align: right; }
+
+  footer { padding: 34px 0 60px; color: var(--muted); font-size: 13px;
+           border-top: 1px solid var(--grid); display: flex; gap: 20px; flex-wrap: wrap; }
+  footer a { color: var(--ink-2); }
+
+  @media (max-width: 760px) {
+    h1 { font-size: 34px; }
+    .tiles { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="wrap">
+  <nav>
+    <span class="brand"><span class="dot"></span>skout</span>
+    <span class="links">
+      <a href="#problem">The problem</a>
+      <a href="#dashboard">Dashboard</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/CHIRANTAN1455/skout-cli">GitHub</a>
+    </span>
+  </nav>
+
+  <div class="hero">
+    <div class="kicker">token-aware guard rails for Claude Code</div>
+    <h1><em>98%</em> of your input tokens<br>are context re-sent.</h1>
+    <p class="sub">Claude Code sessions do not get expensive because the model is verbose. They get
+      expensive because tool output accumulates in the context window and is billed again on every
+      turn that follows. skout keeps it out of the window — and <b>measures the difference</b>,
+      so the claim is auditable rather than asserted.</p>
+    <div class="cta">
+      <a class="btn primary" href="#install">Install</a>
+      <a class="btn" href="https://github.com/CHIRANTAN1455/skout-cli">View source</a>
+    </div>
+    <p class="hint" style="margin-top:22px">A single 2.7 MB Rust binary. No runtime, no API key,
+      no network calls, no telemetry leaving your machine.</p>
+  </div>
+
+  <section id="problem">
+    <h2>Where the tokens actually go</h2>
+    <div class="card">
+      <div class="stack">
+        <i style="flex:.001;background:var(--s1)"></i>
+        <i style="flex:1.9;background:var(--s2)"></i>
+        <i style="flex:98.1;background:var(--s3)"></i>
+      </div>
+      <div class="legend">
+        <div class="item"><span class="sw" style="background:var(--s1)"></span><span class="lab">fresh input</span><span class="num">6.7K</span><span class="pct">0.001%</span></div>
+        <div class="item"><span class="sw" style="background:var(--s2)"></span><span class="lab">cache write</span><span class="num">11.7M</span><span class="pct">1.9%</span></div>
+        <div class="item"><span class="sw" style="background:var(--s3)"></span><span class="lab">cache read</span><span class="num">609.7M</span><span class="pct">98.1%</span></div>
+      </div>
+      <p class="caption">Real 30-day window on one machine: 621.5M input tokens across 3,344
+        assistant turns. Read a 5,000-line file once and it is not a one-time cost — it sits in the
+        window for the rest of the session, billed on every turn that follows.</p>
+    </div>
+
+    <div class="tiles">
+      <div class="tile"><div class="k">Actually billed</div><div class="v">$457.95</div><div class="n">with the prompt cache</div></div>
+      <div class="tile"><div class="k">Without the cache</div><div class="v">$2,765.08</div><div class="n">same turns, no caching</div></div>
+      <div class="tile"><div class="k">Cache saved</div><div class="v good">$2,307.13</div><div class="n">cheap — not free</div></div>
+    </div>
+    <p class="caption">The prompt cache makes re-sent context cheap at 0.1× input. Keeping junk out
+      of the window in the first place is the only thing that actually reduces it.</p>
+  </section>
+
+  <section>
+    <h2>What it does</h2>
+    <div class="feat">
+      <div class="row"><div class="n">01</div><div>
+        <h3>Blocks re-reads</h3>
+        <p>If a file is already in context and has not changed, the second <code>Read</code> is
+          refused with a pointer to the first one. Dedupe fires only when size <b>and</b> mtime
+          match, and the content hash agrees — a file edited in place is still detected as changed.</p>
+      </div></div>
+      <div class="row"><div class="n">02</div><div>
+        <h3>Blocks unbounded reads</h3>
+        <p>A <code>Read</code> with no <code>offset</code>/<code>limit</code> on a very large file is
+          refused with a cheaper alternative: grep it, or page it.</p>
+      </div></div>
+      <div class="row"><div class="n">03</div><div>
+        <h3>Measures everything</h3>
+        <p>Parses your own transcripts for real token counts at Anthropic's published per-token
+          rates, so every number above came out of the tool itself.</p>
+      </div></div>
+    </div>
+    <p class="caption">A guard must never be the thing that breaks your session. Every rule has an
+      escape hatch — once a call has been blocked once, it is allowed through, so a genuinely-needed
+      read costs one extra turn and never a deadlock. Every failure path emits nothing at all: a
+      broken skout is an absent skout.</p>
+  </section>
+
+  <section id="dashboard">
+    <h2>skout serve</h2>
+    <figure>
+      <img src="dashboard.png" alt="The skout dashboard: token composition, cost per day against the uncached equivalent, and guard activity." onerror="this.closest('figure').style.display='none'">
+      <figcaption>A dashboard on <code>127.0.0.1:7331</code> — token composition, cost per day
+        against what the same turns would have cost with no prompt cache, and which tools are
+        putting the most into context. Loopback only; the page makes no external requests.</figcaption>
+    </figure>
+  </section>
+
+  <section id="install">
+    <h2>Install</h2>
+    <pre><code><b>cargo install --git https://github.com/CHIRANTAN1455/skout-cli</b>
+<b>skout init</b></code></pre>
+    <p class="hint">Or build from source:</p>
+    <pre><code><b>git clone https://github.com/CHIRANTAN1455/skout-cli</b>
+<b>cd skout-cli && cargo build --release</b>
+<b>./target/release/skout init</b></code></pre>
+    <p><code>init</code> writes four hooks into <code>~/.claude/settings.json</code> (backing up the
+      existing file first), creates <code>~/.skout/config.toml</code>, and installs a
+      <code>/skout</code> slash command. Removal is symmetric — <code>skout uninstall</code> strips
+      only skout's own entries and leaves every other setting untouched.</p>
+  </section>
+
+  <section>
+    <h2>Commands</h2>
+    <table>
+      <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>skout init</td><td>Install hooks, config, and the <code>/skout</code> command</td></tr>
+        <tr><td>skout report</td><td>Token usage, cost, cache hit rate, and what skout saved</td></tr>
+        <tr><td>skout serve</td><td>The dashboard, on localhost</td></tr>
+        <tr><td>skout config</td><td>Read and change settings</td></tr>
+        <tr><td>skout doctor</td><td>Verify the installation</td></tr>
+        <tr><td>skout uninstall</td><td>Remove the hooks, keep config and history</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer>
+    <span>MIT licensed</span>
+    <a href="https://github.com/CHIRANTAN1455/skout-cli">github.com/CHIRANTAN1455/skout-cli</a>
+    <span>Built for <a href="https://claude.com/claude-code">Claude Code</a></span>
+  </footer>
+</div>
+</html>
