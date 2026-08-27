@@ -7,6 +7,7 @@ mod install;
 mod memory;
 mod pricing;
 mod report;
+mod serve;
 mod transcript;
 mod util;
 
@@ -57,6 +58,14 @@ enum Cmd {
         ever: bool,
         #[arg(long)]
         json: bool,
+    },
+    /// Serve the dashboard on localhost
+    Serve {
+        #[arg(long, default_value_t = 7331)]
+        port: u16,
+        /// Do not open a browser window
+        #[arg(long)]
+        no_open: bool,
     },
     /// Read and change settings
     Config {
@@ -128,6 +137,8 @@ fn run(cli: Cli) -> Result<()> {
             install::doctor(err)
         }
 
+        Cmd::Serve { port, no_open } => serve::run(port, !no_open),
+
         Cmd::Config { action } => config_cmd(action),
 
         Cmd::Reset { session, all } => {
@@ -164,27 +175,36 @@ fn run(cli: Cli) -> Result<()> {
     }
 }
 
-fn window(today: bool, week: bool, month: bool, ever: bool) -> (i64, String) {
+fn window(today: bool, _week: bool, month: bool, ever: bool) -> (i64, String) {
+    let name = if ever {
+        "ever"
+    } else if today {
+        "today"
+    } else if month {
+        "month"
+    } else {
+        // Default window.
+        "week"
+    };
+    window_from(name)
+}
+
+/// Named time windows, shared by the CLI flags and the dashboard's query string.
+pub fn window_from(name: &str) -> (i64, String) {
     use chrono::{Duration, Local, Timelike};
     let now = Local::now();
-    if ever {
-        return (0, "all time".into());
+    match name {
+        "ever" => (0, "all time".into()),
+        "today" => {
+            let start = now
+                .with_hour(0).unwrap()
+                .with_minute(0).unwrap()
+                .with_second(0).unwrap();
+            (start.timestamp(), "today".into())
+        }
+        "month" => ((now - Duration::days(30)).timestamp(), "last 30 days".into()),
+        _ => ((now - Duration::days(7)).timestamp(), "last 7 days".into()),
     }
-    if today {
-        let start = now
-            .with_hour(0).unwrap()
-            .with_minute(0).unwrap()
-            .with_second(0).unwrap();
-        return (start.timestamp(), "today".into());
-    }
-    if month {
-        return ((now - Duration::days(30)).timestamp(), "last 30 days".into());
-    }
-    if week {
-        return ((now - Duration::days(7)).timestamp(), "last 7 days".into());
-    }
-    // Default window.
-    ((now - Duration::days(7)).timestamp(), "last 7 days".into())
 }
 
 fn config_cmd(action: ConfigCmd) -> Result<()> {

@@ -51,27 +51,7 @@ pub fn run(conn: &Connection, cfg: &Config, o: Opts) -> Result<()> {
     let saved = skout_savings(conn, cfg, &o)?;
 
     if o.json {
-        println!("{}", serde_json::json!({
-            "scope": if o.scope_all { "all" } else { o.cwd.as_str() },
-            "window": o.window_label,
-            "tokens": {
-                "fresh_input": scan.total.input,
-                "cache_write": scan.total.cache_write,
-                "cache_read": scan.total.cache_read,
-                "output": scan.total.output,
-                "total_input": scan.total.total_input(),
-            },
-            "cost_usd": scan.total.cost,
-            "cost_without_cache_usd": scan.total.uncached_cost,
-            "cache_hit_rate": scan.total.cache_hit_rate(),
-            "assistant_turns": scan.total.messages,
-            "skout": {
-                "blocks_enforced": saved.enforced,
-                "blocks_overridden": saved.overridden,
-                "tokens_saved": saved.tokens,
-                "usd_saved": saved.usd,
-            }
-        }));
+        println!("{}", serde_json::to_string_pretty(&payload(&scan, &saved, cfg, &o, conn)?)?);
         return Ok(());
     }
 
@@ -268,4 +248,144 @@ fn top_tools(conn: &Connection, o: &Opts) -> Result<Vec<(String, i64, i64)>> {
             .collect::<Result<Vec<_>, _>>()?
     };
     Ok(rows)
+}
+
+/// The full shape behind `--json` and the `serve` dashboard. Both read the same
+/// numbers, so a screenshot of the UI and a piped report can never disagree.
+pub fn payload(
+    scan: &transcript::Scan,
+    saved: &Savings,
+    cfg: &Config,
+    o: &Opts,
+    conn: &Connection,
+) -> Result<serde_json::Value> {
+    let t = &scan.total;
+
+    let mut models: Vec<_> = scan.by_model.iter().collect();
+    models.sort_by(|a, b| b.1.cost.partial_cmp(&a.1.cost).unwrap());
+    let models: Vec<_> = models
+        .iter()
+        .map(|(m, b)| {
+            serde_json::json!({
+                "model": trim_model(m),
+                "cost_usd": b.cost,
+                "total_input": b.total_input(),
+                "output": b.output,
+                "turns": b.messages,
+                "cache_hit_rate": b.cache_hit_rate(),
+            })
+        })
+        .collect();
+
+    let days: Vec<_> = scan
+        .by_day
+        .iter()
+        .map(|(d, b)| {
+            serde_json::json!({
+                "day": d,
+                "cost_usd": b.cost,
+                "uncached_cost_usd": b.uncached_cost,
+                "total_input": b.total_input(),
+                "output": b.output,
+                "turns": b.messages,
+                "cache_hit_rate": b.cache_hit_rate(),
+            })
+        })
+        .collect();
+
+    let mut projects: Vec<_> = scan.by_project.iter().collect();
+    projects.sort_by(|a, b| b.1.cost.partial_cmp(&a.1.cost).unwrap());
+    let projects: Vec<_> = projects
+        .iter()
+        .take(8)
+        .map(|(p, b)| {
+            serde_json::json!({
+                "project": trim_project(p),
+                "cost_usd": b.cost,
+                "total_input": b.total_input(),
+                "turns": b.messages,
+            })
+        })
+        .collect();
+
+    let sessions: Vec<_> = scan
+        .sessions
+        .iter()
+        .take(8)
+        .map(|r| {
+            serde_json::json!({
+                "session_id": r.session_id[..8.min(r.session_id.len())].to_string(),
+                "project": trim_project(&r.project),
+                "last_ts": r.last_ts,
+                "cost_usd": r.bucket.cost,
+                "total_input": r.bucket.total_input(),
+                "cache_hit_rate": r.bucket.cache_hit_rate(),
+            })
+        })
+        .collect();
+
+    let tools: Vec<_> = top_tools(conn, o)?
+        .iter()
+        .take(8)
+        .map(|(tool, calls, tok)| {
+            serde_json::json!({ "tool": tool, "calls": calls, "est_tokens": tok })
+        })
+        .collect();
+
+    let rules: Vec<_> = saved
+        .by_rule
+        .iter()
+        .map(|(rule, n, tok)| serde_json::json!({ "rule": rule, "blocked": n, "tokens": tok }))
+        .collect();
+
+    let guards: Vec<_> = ["dedupe.mode", "big_read.mode", "bash_guard.mode", "grep_guard.mode"]
+        .iter()
+        .map(|k| {
+            serde_json::json!({
+                "guard": k.trim_end_matches(".mode"),
+                "mode": cfg.get(k).unwrap_or_else(|_| "?".into()),
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "scope": if o.scope_all { "all" } else { o.cwd.as_str() },
+        "scope_label": if o.scope_all { "all projects".to_string() } else { short_path(&o.cwd) },
+        "window": o.window_label,
+        "generated_at": util::now(),
+        "enabled": cfg.enabled,
+        "tokens": {
+            "fresh_input": t.input,
+            "cache_write": t.cache_write,
+            "cache_read": t.cache_read,
+            "output": t.output,
+            "total_input": t.total_input(),
+        },
+        "cost_usd": t.cost,
+        "cost_without_cache_usd": t.uncached_cost,
+        "cache_saved_usd": (t.uncached_cost - t.cost).max(0.0),
+        "cache_hit_rate": t.cache_hit_rate(),
+        "assistant_turns": t.messages,
+        "skout": {
+            "blocks_enforced": saved.enforced,
+            "blocks_overridden": saved.overridden,
+            "tokens_saved": saved.tokens,
+            "usd_saved": saved.usd,
+            "by_rule": rules,
+        },
+        "guards": guards,
+        "by_model": models,
+        "by_day": days,
+        "by_project": projects,
+        "sessions": sessions,
+        "top_tools": tools,
+    }))
+}
+
+/// Assemble the payload from scratch — the entry point `serve` uses.
+pub fn collect(conn: &Connection, cfg: &Config, o: &Opts) -> Result<serde_json::Value> {
+    let slug = util::project_slug(&o.cwd);
+    let scan = transcript::scan(cfg, if o.scope_all { None } else { Some(&slug) }, o.since)?;
+    let saved = skout_savings(conn, cfg, o)?;
+    payload(&scan, &saved, cfg, o, conn)
 }

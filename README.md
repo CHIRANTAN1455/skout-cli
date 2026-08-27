@@ -70,11 +70,24 @@ entries and leaves every other setting and third-party hook untouched.
 | `skout report --all` | Every project instead of the current directory |
 | `skout report --today\|--week\|--month\|--ever` | Time window (default: last 7 days) |
 | `skout report --json` | Machine-readable output |
+| `skout serve [--port N] [--no-open]` | Dashboard on `127.0.0.1:7331` — same numbers, rendered |
 | `skout config list\|get\|set\|path` | Read and change settings |
 | `skout doctor` | Verify the installation |
 | `skout reset [--session ID\|--all]` | Forget which files are already in context |
 
 Inside Claude Code, `/skout`, `/skout today`, `/skout config`, `/skout off`.
+
+---
+
+### Dashboard
+
+`skout serve` renders the report in a browser: token composition, cost per day
+against what the same turns would have cost with no prompt cache, guard activity,
+and which tools are putting the most into context.
+
+It is the same `report` payload the CLI prints, so the two can never disagree.
+The server is ~160 lines of `std::net` — no async runtime, no framework — binds
+loopback only, and serves one embedded page with no external requests.
 
 ---
 

@@ -1,0 +1,445 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>skout — token dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    color-scheme: dark;
+    --plane:       #0d0d0d;
+    --surface:     #1a1a19;
+    --surface-2:   #201f1e;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --muted:       #898781;
+    --grid:        #2c2c2a;
+    --axis:        #383835;
+    --ring:        rgba(255,255,255,0.10);
+
+    --s1: #3987e5;  /* fresh input   */
+    --s2: #d95926;  /* cache write   */
+    --s3: #199e70;  /* cache read    */
+    --track: #383835;
+
+    --good:     #0ca30c;
+    --warning:  #fab219;
+    --critical: #d03b3b;
+
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--plane);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 28px 72px; }
+
+  /* ---------- header ---------- */
+  header { display: flex; align-items: flex-start; gap: 24px; flex-wrap: wrap; margin-bottom: 34px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand h1 { font-size: 21px; letter-spacing: -0.02em; margin: 0; font-weight: 620; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--s3); box-shadow: 0 0 0 4px rgba(25,158,112,0.16); }
+  .brand p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .controls { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .seg { display: inline-flex; background: var(--surface); border: 1px solid var(--ring); border-radius: 9px; padding: 2px; }
+  .seg button {
+    font: inherit; font-size: 12.5px; color: var(--ink-2); background: none; border: 0;
+    padding: 5px 11px; border-radius: 7px; cursor: pointer;
+  }
+  .seg button:hover { color: var(--ink); }
+  .seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--ring); }
+
+  .badge {
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    border: 1px solid var(--ring); border-radius: 999px; padding: 4px 10px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .badge::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--good); }
+
+  /* ---------- hero ---------- */
+  .hero {
+    border: 1px solid var(--ring); border-radius: 14px; background: var(--surface);
+    padding: 26px 28px; margin-bottom: 14px;
+  }
+  .hero .figure { font-size: 54px; line-height: 1.05; letter-spacing: -0.035em; font-weight: 640; }
+  .hero .figure em { font-style: normal; color: var(--s3); }
+  .hero p { margin: 10px 0 0; color: var(--ink-2); max-width: 62ch; }
+  .hero p b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- stat tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 30px; }
+  .tile { border: 1px solid var(--ring); border-radius: 14px; background: var(--surface); padding: 18px 18px 16px; }
+  .tile .k { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.07em; }
+  .tile .v { font-size: 29px; letter-spacing: -0.025em; font-weight: 620; margin-top: 7px; }
+  .tile .n { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .tile .v.good { color: var(--good); }
+
+  /* ---------- sections ---------- */
+  section { margin-bottom: 30px; }
+  .head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 13px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 0; font-weight: 600; }
+  .head .note { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+  .card { border: 1px solid var(--ring); border-radius: 14px; background: var(--surface); padding: 20px; }
+
+  /* ---------- stacked composition bar ---------- */
+  .stack { display: flex; gap: 2px; height: 34px; margin-bottom: 16px; }
+  .stack > i { display: block; min-width: 3px; border-radius: 2px; }
+  .stack > i:first-child { border-radius: 6px 2px 2px 6px; }
+  .stack > i:last-child { border-radius: 2px 6px 6px 2px; }
+  .legend { display: flex; gap: 22px; flex-wrap: wrap; }
+  .legend .item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .legend .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .legend .lab { color: var(--ink-2); }
+  .legend .num { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
+  .legend .pct { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* ---------- svg chart ---------- */
+  .chartwrap { position: relative; }
+  svg { display: block; width: 100%; height: auto; }
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0; transition: opacity .09s;
+    background: var(--surface-2); border: 1px solid var(--ring); border-radius: 9px;
+    padding: 9px 11px; font-size: 12.5px; min-width: 150px; z-index: 3;
+    box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  }
+  .tip .t { font-family: var(--mono); color: var(--muted); font-size: 11.5px; margin-bottom: 5px; }
+  .tip .r { display: flex; justify-content: space-between; gap: 16px; }
+  .tip .r span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  /* ---------- ranked bars ---------- */
+  .rank { display: grid; grid-template-columns: 116px 1fr 92px 74px; align-items: center; gap: 12px; padding: 7px 0; }
+  .rank + .rank { border-top: 1px solid var(--grid); }
+  .rank .name { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rank .track { height: 9px; background: var(--grid); border-radius: 3px; overflow: hidden; }
+  .rank .track > i { display: block; height: 100%; background: var(--s1); border-radius: 3px; }
+  .rank .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .rank .sub { text-align: right; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+  /* ---------- guards ---------- */
+  .guards { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--grid); }
+  .chip {
+    font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--ring);
+    border-radius: 7px; padding: 4px 9px; color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .chip .st { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .chip.deny .st { background: var(--good); }
+  .chip.warn .st { background: var(--warning); }
+  .chip b { color: var(--muted); font-weight: 500; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .empty { color: var(--muted); font-size: 13px; }
+  .empty code { font-family: var(--mono); color: var(--ink-2); }
+
+  /* ---------- tables ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; padding-bottom: 9px; }
+  td { padding: 8px 0; border-top: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+  td:first-child, .mono { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); }
+  th.r, td.r { text-align: right; }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 12.5px; display: flex; gap: 18px; flex-wrap: wrap; }
+  footer code { font-family: var(--mono); color: var(--ink-2); }
+
+  @media (max-width: 900px) {
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+    .two { grid-template-columns: 1fr; }
+    .hero .figure { font-size: 38px; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <div class="brand"><span class="dot"></span><h1>skout</h1></div>
+      <p>Token-aware guard rails and cost analytics for Claude Code</p>
+    </div>
+    <div class="controls">
+      <div class="seg" id="scope">
+        <button data-v="all" aria-pressed="true">All projects</button>
+        <button data-v="project" aria-pressed="false">This project</button>
+      </div>
+      <div class="seg" id="window">
+        <button data-v="today" aria-pressed="false">Today</button>
+        <button data-v="week" aria-pressed="true">7 days</button>
+        <button data-v="month" aria-pressed="false">30 days</button>
+        <button data-v="ever" aria-pressed="false">All time</button>
+      </div>
+      <span class="badge">loopback only</span>
+    </div>
+  </header>
+
+  <div id="app"></div>
+
+  <footer>
+    <span>Same numbers as <code>skout report --json</code></span>
+    <span>Parsed from <code>~/.claude/projects</code> · nothing leaves this machine</span>
+    <span id="stamp"></span>
+  </footer>
+</div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const usd = n => (n >= 1000 ? '$' + Math.round(n).toLocaleString() : '$' + n.toFixed(2));
+const usd2 = n => '$' + n.toFixed(2);
+const pct = n => (n * 100).toFixed(n >= 0.995 || n === 0 ? 0 : 1) + '%';
+function tok(n) {
+  n = Number(n) || 0;
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+let state = { scope: 'all', window: 'week' };
+
+function seg(id, key) {
+  $('#' + id).addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    state[key] = b.dataset.v;
+    [...e.currentTarget.children].forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    load();
+  });
+}
+seg('scope', 'scope');
+seg('window', 'window');
+
+async function load() {
+  const r = await fetch(`/api/report?window=${state.window}&scope=${state.scope}`);
+  const d = await r.json();
+  if (d.error) { $('#app').innerHTML = `<div class="card empty">${esc(d.error)}</div>`; return; }
+  render(d);
+  $('#stamp').textContent = 'Updated ' + new Date(d.generated_at * 1000).toLocaleTimeString();
+}
+
+function render(d) {
+  const t = d.tokens;
+  if (!d.assistant_turns) {
+    $('#app').innerHTML = `<div class="card empty">No assistant turns in <b>${esc(d.window)}</b> for this scope.
+      Try a wider window, or switch to <code>All projects</code>.</div>`;
+    return;
+  }
+
+  $('#app').innerHTML = [
+    hero(d, t),
+    tiles(d),
+    composition(d, t),
+    daily(d),
+    guardrails(d),
+    tools(d),
+    tables(d),
+  ].join('');
+
+  drawDaily(d);
+}
+
+/* ---------- hero ---------- */
+function hero(d, t) {
+  const share = t.total_input ? t.cache_read / t.total_input : 0;
+  return `<div class="hero">
+    <div class="figure"><em>${pct(share)}</em> of input tokens were context re-sent</div>
+    <p>Across <b>${d.assistant_turns.toLocaleString()}</b> assistant turns in ${esc(d.window)},
+      <b>${tok(t.cache_read)}</b> of ${tok(t.total_input)} input tokens were the same context
+      billed again, turn after turn. The prompt cache made that cheap — <b>${usd(d.cache_saved_usd)}</b>
+      cheaper — not free. skout keeps it out of the window in the first place.</p>
+  </div>`;
+}
+
+/* ---------- stat tiles ---------- */
+function tiles(d) {
+  const t = d.tokens;
+  return `<div class="tiles">
+    ${tile('Actual cost', usd2(d.cost_usd), esc(d.scope_label))}
+    ${tile('Without prompt cache', usd2(d.cost_without_cache_usd), 'what the same turns would bill')}
+    ${tile('Cache hit rate', pct(d.cache_hit_rate), 'cache reads ÷ total input')}
+    ${tile('Blocked by skout', tok(d.skout.tokens_saved) + ' tok',
+        d.skout.blocks_enforced + ' calls refused · ~' + usd2(d.skout.usd_saved),
+        d.skout.tokens_saved > 0)}
+  </div>`;
+}
+function tile(k, v, n, good) {
+  return `<div class="tile"><div class="k">${k}</div>
+    <div class="v${good ? ' good' : ''}">${v}</div><div class="n">${n}</div></div>`;
+}
+
+/* ---------- token composition ---------- */
+function composition(d, t) {
+  const total = t.total_input || 1;
+  const parts = [
+    ['fresh input', t.fresh_input, 'var(--s1)'],
+    ['cache write', t.cache_write, 'var(--s2)'],
+    ['cache read',  t.cache_read,  'var(--s3)'],
+  ];
+  return `<section>
+    <div class="head"><h2>Input token composition</h2>
+      <span class="note">${tok(t.total_input)} in · ${tok(t.output)} out</span></div>
+    <div class="card">
+      <div class="stack">
+        ${parts.map(([, v, c]) =>
+          `<i style="flex:${Math.max(v / total, 0.002)};background:${c}"></i>`).join('')}
+      </div>
+      <div class="legend">
+        ${parts.map(([k, v, c]) => `<div class="item">
+          <span class="sw" style="background:${c}"></span>
+          <span class="lab">${k}</span>
+          <span class="num">${tok(v)}</span>
+          <span class="pct">${pct(v / total)}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+  </section>`;
+}
+
+/* ---------- daily chart ---------- */
+function daily(d) {
+  if (!d.by_day.length) return '';
+  return `<section>
+    <div class="head"><h2>Cost per day</h2>
+      <div class="legend" style="margin-left:auto">
+        <div class="item"><span class="sw" style="background:var(--s1)"></span><span class="lab">billed</span></div>
+        <div class="item"><span class="sw" style="background:var(--track)"></span><span class="lab">without prompt cache</span></div>
+      </div>
+    </div>
+    <div class="card"><div class="chartwrap"><div id="chart"></div><div class="tip" id="tip"></div></div></div>
+  </section>`;
+}
+
+function drawDaily(d) {
+  const host = $('#chart');
+  if (!host) return;
+  const days = d.by_day;
+  const W = 1000, H = 230, L = 52, R = 8, T = 14, B = 28;
+  const iw = W - L - R, ih = H - T - B;
+  const max = Math.max(...days.map(x => x.uncached_cost_usd), 1);
+  const step = iw / days.length;
+  const bw = Math.max(3, Math.min(38, step - 6));
+  const y = v => T + ih - (v / max) * ih;
+
+  const ticks = [0, max / 2, max].map(v =>
+    `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>
+     <text x="${L - 10}" y="${y(v) + 4}" text-anchor="end" fill="var(--muted)" font-size="11">${usd(v)}</text>`).join('');
+
+  const bars = days.map((x, i) => {
+    const cx = L + step * i + step / 2;
+    const gh = Math.max(2, ih - (y(x.uncached_cost_usd) - T));
+    const bh = Math.max(2, ih - (y(x.cost_usd) - T));
+    return `<g class="col" data-i="${i}">
+      <rect x="${cx - bw / 2}" y="${y(x.uncached_cost_usd)}" width="${bw}" height="${gh}" rx="2" fill="var(--track)"/>
+      <rect x="${cx - bw / 2}" y="${y(x.cost_usd)}" width="${bw}" height="${bh}" rx="2" fill="var(--s1)"
+            stroke="var(--surface)" stroke-width="2"/>
+      <rect x="${L + step * i}" y="${T}" width="${step}" height="${ih}" fill="transparent"/>
+    </g>`;
+  }).join('');
+
+  const every = Math.ceil(days.length / 10);
+  const labels = days.map((x, i) => i % every ? '' :
+    `<text x="${L + step * i + step / 2}" y="${H - 8}" text-anchor="middle" fill="var(--muted)" font-size="11">
+       ${x.day.slice(5)}</text>`).join('');
+
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Billed cost per day against the uncached equivalent">
+    ${ticks}${bars}${labels}
+    <line x1="${L}" x2="${W - R}" y1="${T + ih}" y2="${T + ih}" stroke="var(--axis)" stroke-width="1"/>
+  </svg>`;
+
+  const tip = $('#tip');
+  host.querySelectorAll('.col').forEach(g => {
+    g.addEventListener('mousemove', e => {
+      const x = days[+g.dataset.i];
+      tip.innerHTML = `<div class="t">${x.day}</div>
+        <div class="r"><span>billed</span><span>${usd2(x.cost_usd)}</span></div>
+        <div class="r"><span>uncached</span><span>${usd2(x.uncached_cost_usd)}</span></div>
+        <div class="r"><span>input</span><span>${tok(x.total_input)}</span></div>
+        <div class="r"><span>cached</span><span>${pct(x.cache_hit_rate)}</span></div>
+        <div class="r"><span>turns</span><span>${x.turns}</span></div>`;
+      const b = host.getBoundingClientRect();
+      tip.style.opacity = 1;
+      tip.style.left = Math.min(Math.max(e.clientX - b.left - 80, 0), b.width - 170) + 'px';
+      tip.style.top = Math.max(e.clientY - b.top - 110, 0) + 'px';
+    });
+    g.addEventListener('mouseleave', () => { tip.style.opacity = 0; });
+  });
+}
+
+/* ---------- guardrails ---------- */
+function guardrails(d) {
+  const s = d.skout;
+  const fired = s.blocks_enforced || s.blocks_overridden;
+  const body = fired
+    ? s.by_rule.filter(r => r.blocked > 0).map(r => `<div class="rank">
+        <div class="name">${esc(r.rule)}</div>
+        <div class="track"><i style="width:${Math.min(100, r.tokens / Math.max(...s.by_rule.map(x => x.tokens), 1) * 100)}%"></i></div>
+        <div class="val">${tok(r.tokens)}</div>
+        <div class="sub">${r.blocked} blocked</div>
+      </div>`).join('')
+    : `<div class="empty">No guard has fired in this window. Run <code>skout init</code> and
+       start a session — the guards report every refusal here.</div>`;
+
+  return `<section>
+    <div class="head"><h2>Guard rails</h2>
+      <span class="note">${s.blocks_enforced} enforced · ${s.blocks_overridden} overridden on retry</span></div>
+    <div class="card">
+      ${body}
+      <div class="guards">
+        ${d.guards.map(g => `<span class="chip ${g.mode === 'deny' ? 'deny' : g.mode === 'warn' ? 'warn' : ''}">
+          <span class="st"></span>${esc(g.guard)} <b>${esc(g.mode)}</b></span>`).join('')}
+        <span class="chip ${d.enabled ? 'deny' : ''}"><span class="st"></span>skout <b>${d.enabled ? 'enabled' : 'disabled'}</b></span>
+      </div>
+    </div>
+  </section>`;
+}
+
+/* ---------- top tools ---------- */
+function tools(d) {
+  if (!d.top_tools.length) return '';
+  const max = Math.max(...d.top_tools.map(x => x.est_tokens), 1);
+  return `<section>
+    <div class="head"><h2>Tool output entering context</h2>
+      <span class="note">estimated tokens, measured at PostToolUse</span></div>
+    <div class="card">
+      ${d.top_tools.map(x => `<div class="rank">
+        <div class="name">${esc(x.tool)}</div>
+        <div class="track"><i style="width:${x.est_tokens / max * 100}%"></i></div>
+        <div class="val">${tok(x.est_tokens)}</div>
+        <div class="sub">${x.calls} calls</div>
+      </div>`).join('')}
+    </div>
+  </section>`;
+}
+
+/* ---------- tables ---------- */
+function tables(d) {
+  const models = `<div class="card">
+    <table><thead><tr><th>Model</th><th class="r">Input</th><th class="r">Cached</th><th class="r">Cost</th></tr></thead>
+    <tbody>${d.by_model.slice(0, 6).map(m => `<tr>
+      <td>${esc(m.model)}</td><td class="r">${tok(m.total_input)}</td>
+      <td class="r">${pct(m.cache_hit_rate)}</td><td class="r">${usd2(m.cost_usd)}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+
+  const rows = d.sessions.length > 1 ? d.sessions : d.by_project;
+  const isSess = d.sessions.length > 1;
+  const right = `<div class="card">
+    <table><thead><tr><th>${isSess ? 'Session' : 'Project'}</th><th class="r">Input</th><th class="r">Cost</th></tr></thead>
+    <tbody>${rows.slice(0, 6).map(r => `<tr>
+      <td>${esc(isSess ? r.session_id : r.project)}${isSess ? ` <span style="color:var(--muted)">· ${esc(r.project)}</span>` : ''}</td>
+      <td class="r">${tok(r.total_input)}</td><td class="r">${usd2(r.cost_usd)}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+
+  return `<section>
+    <div class="head"><h2>Models</h2><span class="note" style="margin-left:0">·</span>
+      <h2>${isSess ? 'Recent sessions' : 'Projects'}</h2></div>
+    <div class="two">${models}${right}</div>
+  </section>`;
+}
+
+load();
+</script>

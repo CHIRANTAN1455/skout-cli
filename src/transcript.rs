@@ -47,6 +47,8 @@ pub struct SessionRow {
 pub struct Scan {
     pub total: Bucket,
     pub by_model: HashMap<String, Bucket>,
+    pub by_day: std::collections::BTreeMap<String, Bucket>,
+    pub by_project: HashMap<String, Bucket>,
     pub sessions: Vec<SessionRow>,
 }
 
@@ -82,6 +84,16 @@ fn transcript_files(slug: Option<&str>) -> Vec<PathBuf> {
     out
 }
 
+/// Local-calendar day bucket, `YYYY-MM-DD`.
+fn day_key(ts: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_opt(ts, 0)
+        .single()
+        .map(|d| d.format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
+}
+
 fn parse_ts(v: Option<&Value>) -> i64 {
     v.and_then(|x| x.as_str())
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
@@ -93,6 +105,8 @@ pub fn scan(cfg: &Config, slug: Option<&str>, since: i64) -> Result<Scan> {
     let mult = cfg.cache_write_multiplier();
     let mut total = Bucket::default();
     let mut by_model: HashMap<String, Bucket> = HashMap::new();
+    let mut by_day: std::collections::BTreeMap<String, Bucket> = std::collections::BTreeMap::new();
+    let mut by_project: HashMap<String, Bucket> = HashMap::new();
     let mut sessions: HashMap<String, SessionRow> = HashMap::new();
 
     for file in transcript_files(slug) {
@@ -156,6 +170,10 @@ pub fn scan(cfg: &Config, slug: Option<&str>, since: i64) -> Result<Scan> {
 
             total.merge(&b);
             by_model.entry(model).or_default().merge(&b);
+            by_project.entry(project.clone()).or_default().merge(&b);
+            if ts > 0 {
+                by_day.entry(day_key(ts)).or_default().merge(&b);
+            }
 
             let sid = v
                 .get("sessionId")
@@ -176,5 +194,5 @@ pub fn scan(cfg: &Config, slug: Option<&str>, since: i64) -> Result<Scan> {
     let mut sessions: Vec<SessionRow> = sessions.into_values().collect();
     sessions.sort_by(|a, b| b.last_ts.cmp(&a.last_ts));
 
-    Ok(Scan { total, by_model, sessions })
+    Ok(Scan { total, by_model, by_day, by_project, sessions })
 }
