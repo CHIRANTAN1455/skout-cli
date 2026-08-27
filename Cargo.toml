@@ -1,0 +1,29 @@
+[package]
+name = "skout"
+version = "0.1.0"
+edition = "2021"
+description = "Token-aware guard rails and cost analytics for Claude Code"
+license = "MIT"
+
+[[bin]]
+name = "skout"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+rusqlite = { version = "0.32", features = ["bundled"] }
+sha2 = "0.10"
+dirs = "5"
+chrono = "0.4"
+glob = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
